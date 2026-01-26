@@ -25,3 +25,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# editors
+.vscode/
+.cursor/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# logs
+*.log
