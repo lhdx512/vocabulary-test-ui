@@ -8,6 +8,9 @@ import { SentenceCard } from "@/components/sentence-card"
 import { Button } from "@/components/ui/button"
 import sentences from "@/data/sentences.v1.json"
 
+import { createSession, updateSession, shouldStop, estimate } from "@/lib/test-engine/engine"
+import type { Sentence as EngineSentence, SessionState } from "@/lib/test-engine/types"
+
 type Sentence = {
   id: number
   text: string
@@ -26,6 +29,8 @@ export default function TestPage() {
 
   // JSON import typing: widen to a stable shape (no runtime impact)
   const sentenceList = sentences as unknown as Sentence[]
+
+  const [session, setSession] = useState<SessionState>(() => createSession(20))
 
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0)
   const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set())
@@ -110,24 +115,39 @@ export default function TestPage() {
   const advanceToNext = () => {
     if (advancingRef.current) return
     advancingRef.current = true
-
-    // 清理定时器
+  
+    // 清理定时器（支持“跳过翻译”）
     if (revealTimerRef.current) {
       clearTimeout(revealTimerRef.current)
       revealTimerRef.current = null
     }
-
+  
     // 结束 reveal
     setShowTranslation(false)
-
-    // 结算本句
+  
+    // === v1：结算本句到引擎 session（两条路径都会走到这里）===
+    const nextSession = updateSession(
+      session,
+      currentSentence as unknown as EngineSentence,
+      selectedWords,
+    )
+  
+    // 先把 session 写回（用于后续展示/调试）
+    setSession(nextSession)
+  
+    // 结算本句的 UI 统计（你原来的进度条/剩余句子依赖这个）
     const thisSelectedCount = selectedWords.size
-    const finalTotal = totalSelectedWords + thisSelectedCount
-
     setTotalSelectedWords((prev) => prev + thisSelectedCount)
     setSentencesCompleted((prev) => prev + 1)
-
-    // 下一句 / 结束
+  
+    // 如果达到 maxSteps：直接结束并跳结果页
+    if (shouldStop(nextSession)) {
+      const { vocab, error } = estimate(nextSession)
+      router.push(`/result?vocab=${vocab}&error=${error}`)
+      return
+    }
+  
+    // 还没到 maxSteps：继续下一句（或句库结束也结束）
     if (currentSentenceIndex < sentenceList.length - 1) {
       setCurrentSentenceIndex((prev) => prev + 1)
       setSelectedWords(new Set())
@@ -135,10 +155,12 @@ export default function TestPage() {
         advancingRef.current = false
       })
     } else {
-      router.push(`/result?score=${calculateScore(finalTotal)}`)
+      // 句库用完也结束（哪怕没到 maxSteps）
+      const { vocab, error } = estimate(nextSession)
+      router.push(`/result?vocab=${vocab}&error=${error}`)
     }
   }
-
+  
   const handleNextClick = () => {
     // reveal 中：按钮可点，点击=跳过翻译
     if (showTranslation) {
