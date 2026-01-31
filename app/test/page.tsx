@@ -115,50 +115,46 @@ export default function TestPage() {
   const advanceToNext = () => {
     if (advancingRef.current) return
     advancingRef.current = true
-  
+
     // 清理定时器（支持“跳过翻译”）
     if (revealTimerRef.current) {
       clearTimeout(revealTimerRef.current)
       revealTimerRef.current = null
     }
-  
+
     // 结束 reveal
     setShowTranslation(false)
-  
+
     // === v1：结算本句到引擎 session（两条路径都会走到这里）===
     const nextSession = updateSession(
       session,
       currentSentence as unknown as EngineSentence,
       selectedWords,
     )
-  
-    // 先把 session 写回（用于后续展示/调试）
+
+    // 写回 session
     setSession(nextSession)
-  
-    // 结算本句的 UI 统计（你原来的进度条/剩余句子依赖这个）
+
+    // 结算本句的 UI 统计
     const thisSelectedCount = selectedWords.size
     setTotalSelectedWords((prev) => prev + thisSelectedCount)
     setSentencesCompleted((prev) => prev + 1)
-  
-    // 如果达到 maxSteps：直接结束并跳结果页
+
+    // 满足停测：结束并跳结果页
     if (shouldStop(nextSession)) {
       const { vocab, error } = estimate(nextSession)
       router.push(`/result?vocab=${vocab}&error=${error}`)
       return
     }
-  
-    // 还没到 maxSteps：继续下一句（或句库结束也结束）
-    if (currentSentenceIndex < sentenceList.length - 1) {
-      setCurrentSentenceIndex((prev) => prev + 1)
-      setSelectedWords(new Set())
-      requestAnimationFrame(() => {
-        advancingRef.current = false
-      })
-    } else {
-      // 句库用完也结束（哪怕没到 maxSteps）
-      const { vocab, error } = estimate(nextSession)
-      router.push(`/result?vocab=${vocab}&error=${error}`)
-    }
+
+    // 还没到停测：继续下一句（句库循环，避免被 10 句卡死）
+    setCurrentSentenceIndex((prev) => (prev + 1) % sentenceList.length)
+    setSelectedWords(new Set())
+
+    // 释放“推进锁”
+    requestAnimationFrame(() => {
+      advancingRef.current = false
+    })
   }
   
   const handleNextClick = () => {
